@@ -1,0 +1,25 @@
+[package]
+name = "circular-enterprise-apis"
+version = "1.0.0"
+edition = "2021"
+description = "Official Circular Protocol Enterprise APIs for Data Certification - Rust Implementation"
+license = "MIT"
+repository = "https://github.com/your-username/rust-enterprise-apis" # Replace with your repo URL
+
+[dependencies]
+# HTTP Client, equivalent to OkHttp
+reqwest = { version = "0.12", features = ["blocking", "json"] }
+
+# JSON Serialization/Deserialization, equivalent to Jackson
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Cryptography, equivalent to Bouncy Castle for this use case
+k256 = { version = "0.13", features = ["ecdsa", "pem"] }
+sha2 = "0.10"
+
+# Utilities
+hex = "0.4"
+chrono = "0.4"
+thiserror = "1.0" # For creating a good error enum
+once_cell = "1.19" # For the static HTTP client
