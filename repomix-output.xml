@@ -1,0 +1,242 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries,a each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+.gitignore
+Cargo.toml
+flake.lock
+flake.nix
+README.md
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path=".gitignore">
+.envrc
+.direnv/
+.env
+target/
+tests/
+</file>
+
+<file path="flake.lock">
+{
+  "nodes": {
+    "flake-utils": {
+      "inputs": {
+        "systems": "systems"
+      },
+      "locked": {
+        "lastModified": 1731533236,
+        "narHash": "sha256-l0KFg5HjrsfsO/JpG+r7fRrqm12kzFHyUHqHCVpMMbI=",
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "rev": "11707dc2f618dd54ca8739b309ec4fc024de578b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1749143949,
+        "narHash": "sha256-QuUtALJpVrPnPeozlUG/y+oIMSLdptHxb3GK6cpSVhA=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "d3d2d80a2191a73d1e86456a751b83aa13085d7d",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_2": {
+      "locked": {
+        "lastModified": 1744536153,
+        "narHash": "sha256-awS2zRgF4uTwrOKwwiJcByDzDOdo3Q1rPZbiHQg/N38=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "18dd725c29603f582cf1900e0d25f9f1063dbf11",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixpkgs-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "flake-utils": "flake-utils",
+        "nixpkgs": "nixpkgs",
+        "rust-overlay": "rust-overlay"
+      }
+    },
+    "rust-overlay": {
+      "inputs": {
+        "nixpkgs": "nixpkgs_2"
+      },
+      "locked": {
+        "lastModified": 1749350575,
+        "narHash": "sha256-ltLegOYrp69v/7BXlNfSwUPrt2DvF7N668pV4a6rWRA=",
+        "owner": "oxalica",
+        "repo": "rust-overlay",
+        "rev": "24d5806474b0779d373f381f00d75ad51fd45099",
+        "type": "github"
+      },
+      "original": {
+        "owner": "oxalica",
+        "repo": "rust-overlay",
+        "type": "github"
+      }
+    },
+    "systems": {
+      "locked": {
+        "lastModified": 1681028828,
+        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
+        "owner": "nix-systems",
+        "repo": "default",
+        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-systems",
+        "repo": "default",
+        "type": "github"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
+</file>
+
+<file path="flake.nix">
+# ~/circular/Rust-Enterprise-APIs/flake.nix
+{
+  description = "A development environment for a Rust Enterprise API";
+
+  # These are the dependencies of your flake, like nixpkgs
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    rust-overlay.url = "github:oxalica/rust-overlay";
+    flake-utils.url = "github:numtide/flake-utils";
+  };
+
+  # This is the main part of your flake
+  outputs = { self, nixpkgs, rust-overlay, flake-utils }:
+    # This handy utility builds your shell for different systems (linux, macos)
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        # Import the rust overlay to get the latest toolchains
+        overlays = [ (import rust-overlay) ];
+        # Apply the overlay to nixpkgs
+        pkgs = import nixpkgs {
+          inherit system overlays;
+        };
+
+        # Choose your rust toolchain
+        rustToolchain = pkgs.rust-bin.stable.latest.default;
+
+      in
+      {
+        # This is the dev shell that `nix develop` will use
+        devShells.default = pkgs.mkShell {
+          # Packages needed for building and running
+          # These are your dependencies from shell.nix
+          buildInputs = [
+            rustToolchain
+            pkgs.pkg-config
+            pkgs.openssl
+            pkgs.cargo-watch # example of another useful tool
+          ];
+
+          # You can also set environment variables here if needed
+          # RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
+        };
+      }
+    );
+}
+</file>
+
+<file path="Cargo.toml">
+[package]
+name = "circular-enterprise-apis"
+version = "1.0.0"
+edition = "2021"
+description = "Official Circular Protocol Enterprise APIs for Data Certification - Rust Implementation"
+license = "MIT"
+repository = "https://github.com/your-username/rust-enterprise-apis" # Replace with your repo URL
+
+[dependencies]
+# HTTP Client, equivalent to OkHttp
+reqwest = { version = "0.12", features = ["blocking", "json"] }
+
+# JSON Serialization/Deserialization, equivalent to Jackson
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Cryptography, equivalent to Bouncy Castle for this use case
+k256 = { version = "0.13", features = ["ecdsa", "pem"] }
+sha2 = "0.10"
+
+# Utilities
+hex = "0.4"
+chrono = "0.4"
+thiserror = "1.0" # For creating a good error enum
+once_cell = "1.19" # For the static HTTP client
+dotenvy = "0.15.7"
+</file>
+
+<file path="README.md">
+# RUST-Enterprise-APIs
+Circular Protocol Rust Enterprise APIs
+</file>
+
+</files>
