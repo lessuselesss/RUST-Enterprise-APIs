@@ -1,10 +1,16 @@
-pub mod c_certificate;
+//! # CEP SDK
+//!
+//! A Rust SDK for interacting with the Circular ESM Enterprise APIs.
+//! This library provides functionality for managing accounts, creating
+//! and submitting certificates, and querying transaction status on the
+//! Circular network.
+
+// Expose the public components of the library.
 pub mod cep_account;
+pub mod c_certificate;
 pub mod error;
-pub mod helper;
+pub mod models;
 
-// Re-export the main structs and the error types for easier use by consumers of the library.
+pub use cep_account::CEPAccount;
 pub use c_certificate::CCertificate;
-pub use cep_account::{CEPAccount, TransactionOutcome};
-pub use error::{Error, Result};
-
+pub use error::{CEPError, Result};

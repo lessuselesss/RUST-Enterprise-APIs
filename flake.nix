@@ -28,8 +28,18 @@
             pkgs.pkg-config
             pkgs.openssl
             
-            # The C compiler and linker
+            # The C/C++ compilers and linker
             pkgs.gcc
+            pkgs.gnumake
+            pkgs.gpp
+            pkgs.bison
+            pkgs.flex
+            pkgs.fontforge
+            pkgs.makeWrapper
+            pkgs.libiconv
+            pkgs.autoconf
+            pkgs.automake
+            # freetype calls glibtoolize
             
             # Optional but useful tool
             pkgs.cargo-watch 
@@ -37,12 +47,16 @@
 
           # Environment variables for specific libraries if needed (e.g., openssl)
           # OPENSSL_DIR = pkgs.openssl;
-          # PKG_CONFIG_PATH = "${pkgs.openssl}/lib/pkgconfig";
+          # PKG_CONFIG_PATH = "''${pkgs.openssl}/lib/pkgconfig";
 
           # A simple prompt to indicate you are in the devShell
           shellHook = ''
             echo "Entering Rust development environment (Nix Flakes)"
-          '';
+          ''
+          ;
+
+          # Disable the network sandbox to allow cargo and tests to connect
+          __noChroot = true;
         };
       }
     );

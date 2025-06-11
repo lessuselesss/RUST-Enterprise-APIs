@@ -1,335 +1,309 @@
-// FILE: src/cep_account.rs
-
-use crate::error::{Error, Result};
-use crate::helper;
-
-use reqwest::blocking::Client;
-use serde::{Deserialize, Serialize};
+use crate::c_certificate::CCertificate;
+use crate::error::{CEPError, Result};
+use crate::models::*;
+use secp256k1::{Message, Secp256k1};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
-use std::sync::Arc;
+use std::time::Duration;
 
-use k256::ecdsa::{signature::hazmat::PrehashSigner, Signature, SigningKey};
-use k256::SecretKey;
+const LIB_VERSION: &str = "1.0.0-rust";
+const DEFAULT_NAG: &str = "https://nag.testnet.circular";
+const DEFAULT_CHAIN: &str = "Circular-Main-Public-Chain";
 
+/// Represents a client account for interacting with the Circular ESM Enterprise API.
 #[derive(Debug)]
 pub struct CEPAccount {
-    address: Option<String>,
-    nag_url: String,
-    network_node: String,
-    blockchain: String,
-    latest_tx_id: Option<String>,
-    nonce: u64,
-    client: Arc<Client>,
+    pub address: Option<String>,
+    pub public_key: Option<String>,
+    pub private_key: Option<String>,
+    pub info: Option<serde_json::Value>,
+    pub code_version: String,
+    pub nag_url: String,
+    pub network_node: String,
+    pub blockchain: String,
+    pub latest_tx_id: String,
+    pub nonce: u64,
+    pub interval_sec: u64,
+    pub is_open: bool,
+    client: reqwest::Client,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "PascalCase")]
-struct GetNonceRequest<'a> {
-    blockchain: &'a str,
-    address: &'a str,
-    version: &'static str,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "PascalCase")]
-struct GetNonceResponse {
-    result: i32,
-    response: GetNonceResponsePayload,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "PascalCase")]
-struct GetNonceResponsePayload {
-    nonce: u64,
-}
-
-#[derive(Deserialize)]
-struct SetNetworkResponse {
-    url: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "PascalCase")]
-struct TransactionData<'a> {
-    id: &'a str,
-    from: &'a str,
-    to: &'a str,
-    timestamp: String,
-    payload: String,
-    nonce: String,
-    signature: String,
-    blockchain: &'a str,
-    #[serde(rename = "Type")]
-    tx_type: &'static str,
-    version: &'static str,
-}
-
-#[derive(Deserialize, Debug)]
-#[serde(rename_all = "PascalCase")]
-pub struct TransactionOutcome {
-    pub result: i32,
-    pub response: Value,
-}
-
-// New struct for GetTransactionbyID API request
-#[derive(Serialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct GetTransactionRequest<'a> {
-    pub id: &'a str,
-    pub start: &'a str,
-    pub end: &'a str,
-    pub blockchain: &'a str,
-    pub version: &'static str,
+impl Default for CEPAccount {
+    /// #### 1.2.1 - Test: should initialize with default values
+    fn default() -> Self {
+        Self {
+            address: None,
+            public_key: None,
+            private_key: None,
+            info: None,
+            code_version: LIB_VERSION.to_string(),
+            nag_url: DEFAULT_NAG.to_string(),
+            network_node: String::new(),
+            blockchain: DEFAULT_CHAIN.to_string(),
+            latest_tx_id: String::new(),
+            nonce: 0,
+            interval_sec: 2,
+            is_open: false,
+            client: reqwest::Client::new(),
+        }
+    }
 }
 
 impl CEPAccount {
-    pub fn new_prod() -> Self {
-        CEPAccount {
-            address: None,
-            nag_url: helper::DEFAULT_NAG.to_string(),
-            network_node: String::new(),
-            blockchain: helper::DEFAULT_CHAIN.to_string(),
-            latest_tx_id: None,
-            nonce: 0,
-            client: Arc::new(Client::builder()
-                .timeout(Duration::from_secs(30))
-                .no_proxy()
-                .build()
-                .expect("Failed to build production HTTP client")),
-        }
-    }
-
+    /// Creates a new `CEPAccount` with default values.
     pub fn new() -> Self {
-        CEPAccount::new_prod()
+        Self::default()
     }
 
-    pub fn new_with_client(client: Arc<Client>) -> Self {
-        CEPAccount {
-            address: None,
-            nag_url: helper::DEFAULT_NAG.to_string(),
-            network_node: String::new(),
-            blockchain: helper::DEFAULT_CHAIN.to_string(),
-            latest_tx_id: None,
-            nonce: 0,
-            client,
-        }
+    pub fn get_address(&self) -> String {
+        self.address.clone().unwrap_or_default()
     }
 
-    pub fn open(&mut self, address: &str) -> Result<()> {
-        if address.is_empty() {
-            return Err(Error::InvalidInput("Address cannot be empty".to_string()));
-        }
+    pub fn set_address(&mut self, address: &str) {
         self.address = Some(address.to_string());
-        Ok(())
     }
 
-    pub fn update_account(&mut self) -> Result<()> {
-        let address = self.address.as_ref().ok_or(Error::AccountNotOpen)?;
-        let request_body = GetNonceRequest {
-            blockchain: &helper::hex_fix(&self.blockchain),
-            address: &helper::hex_fix(address),
-            version: helper::LIB_VERSION,
-        };
-        let url = format!("{}Circular_GetWalletNonce_", self.nag_url);
-        let resp: GetNonceResponse = self.client.post(&url).json(&request_body).send()?.json()?;
-        if resp.result == 200 {
-            self.nonce = resp.response.nonce + 1;
-            Ok(())
-        } else {
-            Err(Error::ApiError(format!(
-                "Failed to update account, API result: {}",
-                resp.result
-            )))
-        }
+    pub fn get_public_key(&self) -> String {
+        self.public_key.clone().unwrap_or_default()
     }
 
-    pub fn set_network(&mut self, network: &str) -> Result<String> {
-        let url = format!("{}{}", helper::NETWORK_URL, network);
-        let resp: SetNetworkResponse = self.client.get(&url).send()?.json()?;
-        self.nag_url = resp.url.clone();
-        Ok(resp.url)
+    pub fn set_public_key(&mut self, public_key: &str) {
+        self.public_key = Some(public_key.to_string());
     }
 
-    pub fn submit_certificate(&mut self, pdata: &str, private_key_hex: &str) -> Result<()> {
-        let address = self.address.as_ref().ok_or(Error::AccountNotOpen)?;
-        let fixed_address = helper::hex_fix(address);
-
-        let mut payload_object = HashMap::new();
-        payload_object.insert("Action", "CP_CERTIFICATE");
-        
-        let hex_encoded_data = helper::string_to_hex(pdata);
-        payload_object.insert("Data", &hex_encoded_data);
-
-        let json_str = serde_json::to_string(&payload_object)?;
-        let payload = helper::string_to_hex(&json_str);
-
-        let timestamp = helper::get_formatted_timestamp();
-        let str_to_hash = format!(
-            "{}{}{}{}{}{}",
-            helper::hex_fix(&self.blockchain),
-            fixed_address,
-            fixed_address,
-            payload,
-            self.nonce,
-            timestamp
-        );
-
-        let mut hasher = Sha256::new();
-        hasher.update(str_to_hash.as_bytes());
-        let id_hash = hasher.finalize();
-        let id = hex::encode(id_hash);
-
-        let signature = self.sign_data(&id, private_key_hex)?;
-
-        let transaction_data = TransactionData {
-            id: &id,
-            from: &fixed_address,
-            to: &fixed_address,
-            timestamp,
-            payload,
-            nonce: self.nonce.to_string(),
-            signature,
-            blockchain: &helper::hex_fix(&self.blockchain),
-            tx_type: "C_TYPE_CERTIFICATE",
-            version: helper::LIB_VERSION,
-        };
-
-        let url = format!("{}Circular_AddTransaction_{}", self.nag_url, self.network_node);
-        let resp = self.client
-            .post(&url)
-            .json(&transaction_data)
-            .send()?
-            .json::<Value>()?;
-
-        if resp["Result"] == 200 {
-            self.latest_tx_id = Some(id);
-            self.nonce += 1;
-            Ok(())
-        } else {
-            Err(Error::ApiError(resp["Response"].to_string()))
-        }
+    pub fn get_private_key(&self) -> String {
+        self.private_key.clone().unwrap_or_default()
     }
 
-    fn sign_data(&self, message: &str, private_key_hex: &str) -> Result<String> {
-        let clean_pk = helper::hex_fix(private_key_hex);
-        if clean_pk.len() != 64 {
-            return Err(Error::InvalidInput(
-                "Invalid private key length. Expected 64 hex characters.".to_string(),
-            ));
-        }
-        let secret_key = SecretKey::from_slice(&hex::decode(clean_pk)?)?;
-        let signing_key: SigningKey = SigningKey::from(secret_key);
-
-        let mut hasher = Sha256::new();
-        hasher.update(message.as_bytes());
-        let message_hash = hasher.finalize();
-        
-        let signature: Signature = PrehashSigner::<Signature>::sign_prehash(&signing_key, &message_hash)?
-            .normalize_s()
-            .ok_or_else(|| Error::Crypto("Failed to normalize signature (s-value was zero)".to_string()))?;
-        
-        let der_signature = signature.to_der();
-        Ok(hex::encode(der_signature.as_bytes()))
+    pub fn set_private_key(&mut self, private_key: &str) {
+        self.private_key = Some(private_key.to_string());
     }
 
-    pub fn get_transaction_outcome(
-        &self,
-        tx_id: &str,
-        timeout_sec: u64,
-        interval_sec: u64,
-    ) -> Result<TransactionOutcome> {
-        let start_time = Instant::now();
-        loop {
-            if start_time.elapsed().as_secs() > timeout_sec {
-                return Err(Error::Timeout);
-            }
-            match self.get_transaction("0", tx_id) {
-                Ok(data) => {
-                    if data.result == 200 {
-                        if let Some(response_map) = data.response.as_object() {
-                            if let Some(status) = response_map.get("Status").and_then(|s| s.as_str())
-                            {
-                                if status != "Pending" {
-                                    return Ok(data);
-                                }
-                            } else {
-                                return Ok(data);
-                            }
-                        }
-                    }
-                }
-                Err(_) => {}
-            }
-            std::thread::sleep(Duration::from_secs(interval_sec));
-        }
+    pub fn get_network(&self) -> String {
+        self.network_node.clone() // Assuming network_node stores the current network
     }
 
-    pub fn get_transaction(&self, block_id: &str, tx_id: &str) -> Result<TransactionOutcome> {
-        let url = format!("{}Circular_GetTransactionbyID_", self.nag_url);
-        let request_body = GetTransactionRequest {
-            id: &helper::hex_fix(tx_id),
-            start: block_id,
-            end: block_id,
-            blockchain: &helper::hex_fix(&self.blockchain),
-            version: helper::LIB_VERSION,
-        };
-
-        let resp: TransactionOutcome = self.client.post(&url).json(&request_body).send()?.json()?;
-        Ok(resp)
-    }
-
-    pub fn close(&mut self) {
-        self.address = None;
-        self.nag_url = helper::DEFAULT_NAG.to_string();
-        self.network_node = String::new();
-        self.blockchain = helper::DEFAULT_CHAIN.to_string();
-        self.latest_tx_id = None;
-        self.nonce = 0;
-    }
-
-    pub fn set_nag_url(&mut self, nag_url: String) {
-        self.nag_url = nag_url;
-    }
-
-    pub fn set_network_node(&mut self, network_node: String) {
-        self.network_node = network_node;
-    }
-
-    pub fn set_blockchain(&mut self, blockchain: String) {
-        self.blockchain = blockchain;
-    }
-
-    pub fn get_latest_tx_id(&self) -> Option<&str> {
-        self.latest_tx_id.as_deref()
+    pub fn get_blockchain(&self) -> String {
+        self.blockchain.clone()
     }
 
     pub fn get_nonce(&self) -> u64 {
         self.nonce
     }
 
-    pub fn get_address(&self) -> Option<&str> {
-        self.address.as_deref()
+    pub fn set_nonce(&mut self, nonce: u64) {
+        self.nonce = nonce;
     }
 
-    pub fn get_transaction_by_id(
-        &self,
-        tx_id: &str,
-        start_block: &str,
-        end_block: &str,
-    ) -> Result<TransactionOutcome> {
-        let url = format!("{}Circular_GetTransactionbyID_", self.nag_url);
-        let request_body = GetTransactionRequest {
-            id: &helper::hex_fix(tx_id),
-            start: start_block,
-            end: end_block,
-            blockchain: &helper::hex_fix(&self.blockchain),
-            version: helper::LIB_VERSION,
+    pub fn is_open(&self) -> bool {
+        self.is_open
+    }
+
+    pub fn set_open(&mut self, open: bool) {
+        self.is_open = open;
+    }
+
+    /// #### 1.3 The open method
+    pub async fn open(&mut self, address: &str, private_key_hex: &str) -> Result<()> {
+        if address.is_empty() {
+            return Err(CEPError::InvalidArgument("Invalid address format".to_string()));
+        }
+        self.address = Some(address.to_string());
+        
+        // Remove "0x" prefix if present
+        let clean_private_key_hex = private_key_hex.strip_prefix("0x").unwrap_or(private_key_hex);
+        self.private_key = Some(clean_private_key_hex.to_string());
+        self.is_open = true;
+
+        // Derive public key from private key if needed
+        let private_key_bytes = hex::decode(clean_private_key_hex)?;
+        let secret_key = secp256k1::SecretKey::from_slice(&private_key_bytes)?;
+        let secp = secp256k1::Secp256k1::new();
+        let public_key = secp256k1::PublicKey::from_secret_key(&secp, &secret_key);
+        self.public_key = Some(hex::encode(public_key.serialize().as_ref()));
+        
+        Ok(())
+    }
+
+    /// #### 1.4 The close method
+    pub fn close(&mut self) {
+        *self = Self::default();
+    }
+
+    /// #### 1.5 The setBlockchain method
+    pub fn set_blockchain(&mut self, chain: &str) {
+        self.blockchain = chain.to_string();
+    }
+
+    /// #### 1.6 The setNetwork method
+    pub async fn set_network(&mut self, network: &str) -> Result<()> {
+        let url = format!("{}/network/getNAG?network={}", self.nag_url, network);
+        let res = self.client.get(&url).send().await?.error_for_status()?;
+        let body: NagResponse = res.json().await?;
+
+        if body.status == "error" {
+            let message = body.message.unwrap_or_else(|| "Unknown API error".to_string());
+            return Err(CEPError::ApiError { message });
+        }
+
+        self.nag_url = body.nag.ok_or_else(|| CEPError::ApiError {
+            message: "NAG URL missing from successful response".to_string(),
+        })?;
+
+        Ok(())
+    }
+    
+    /// #### 1.7 The updateAccount method
+    pub async fn update_account(&mut self) -> Result<bool> {
+        let address = self.address.as_ref().ok_or_else(|| CEPError::Logic("Account is not open".to_string()))?;
+        
+        let req_body = GetNonceRequest {
+            address,
+            blockchain: &self.blockchain,
+            version: &self.code_version,
         };
 
-        let resp: TransactionOutcome = self.client.post(&url).json(&request_body).send()?.json()?;
-        Ok(resp)
+        let res = self.client
+            .post(format!("{}/API/Circular_GetWalletNonce_", self.nag_url))
+            .json(&req_body)
+            .send()
+            .await;
+
+        let res = match res {
+            Ok(r) => r,
+            Err(_) => return Ok(false), // Network error
+        };
+
+        if !res.status().is_success() {
+            return Ok(false);
+        }
+
+        let body: GetNonceResponse = match res.json().await {
+            Ok(b) => b,
+            Err(_) => return Ok(false), // Malformed response
+        };
+        
+        if body.result != 200 {
+            return Ok(false);
+        }
+
+        if let Some(nonce) = body.nonce {
+            self.nonce = nonce + 1;
+            Ok(true)
+        } else {
+            Ok(false) // Nonce missing from response
+        }
+    }
+    
+    /// #### 1.8 The signData method
+    pub fn sign_data(&self, data: &str, private_key_hex: &str) -> Result<String> {
+        self.address.as_ref().ok_or_else(|| CEPError::Logic("Account is not open".to_string()))?;
+        
+        // Remove "0x" prefix if present
+        let clean_private_key_hex = private_key_hex.strip_prefix("0x").unwrap_or(private_key_hex);
+        let private_key_bytes = hex::decode(clean_private_key_hex)?;
+        let secret_key = secp256k1::SecretKey::from_slice(&private_key_bytes)?;
+
+        let mut hasher = Sha256::new();
+        hasher.update(data.as_bytes());
+        let hash = hasher.finalize();
+
+        let secp = Secp256k1::new();
+        let message = Message::from_slice(&hash)?;
+        let signature = secp.sign_ecdsa(&message, &secret_key);
+
+        Ok(hex::encode(signature.serialize_der()))
+    }
+    
+    /// #### 1.10 The submitCertificate method
+    pub async fn submit_certificate(&self, cert_data: &str, private_key_hex: &str) -> Result<SubmitTxResponse> {
+        let from_address = self.address.as_ref().ok_or_else(|| CEPError::Logic("Account is not open".to_string()))?;
+
+        let mut cert = CCertificate::new();
+        cert.set_data(cert_data);
+        let cert_json = cert.to_json_string()?;
+
+        let signature = self.sign_data(&cert_json, private_key_hex)?;
+
+        let req_body = SubmitTxRequest {
+            from: from_address,
+            to: from_address, // Self-transaction
+            nonce: self.nonce,
+            r#type: 6, // Assuming type 6 for certificate
+            blockchain: &self.blockchain,
+            payload: SubmitTxPayload {
+                data: &cert.data,
+                previous_tx_id: cert.previous_tx_id.as_deref(),
+                previous_block: cert.previous_block.as_deref(),
+                code_version: &cert.code_version,
+            },
+            signature: &signature,
+            version: &self.code_version,
+        };
+
+        let res = self.client
+            .post(format!("{}/API/Circular_AddTransaction_", self.nag_url))
+            .json(&req_body)
+            .send()
+            .await?;
+        
+        if !res.status().is_success() {
+             return Ok(SubmitTxResponse::Error {
+                result: res.status().as_u16() as i32,
+                response: "Server unreachable or request failed".to_string(),
+            });
+        }
+        
+        let parsed_res = res.json().await?;
+        Ok(parsed_res)
+    }
+
+    /// #### 1.9 getTransactionbyID
+    pub async fn get_transaction_by_id(&self, tx_id: &str, start_block: u64, end_block: u64) -> Result<GetTxResponse> {
+        let req_body = GetTxRequest {
+            id: tx_id,
+            start_block,
+            end_block,
+            blockchain: &self.blockchain,
+            version: &self.code_version,
+        };
+
+        let res = self.client
+            .post(format!("{}/API/Circular_GetTransactionbyID_", self.nag_url))
+            .json(&req_body)
+            .send()
+            .await?;
+        
+        Ok(res.json().await?)
+    }
+
+    /// #### 1.11 getTransactionOutcome
+    pub async fn get_transaction_outcome(&self, tx_id: &str, timeout_sec: u64) -> Result<TransactionData> {
+        let start_time = std::time::Instant::now();
+        let timeout = Duration::from_secs(timeout_sec);
+        
+        loop {
+            if start_time.elapsed() > timeout {
+                return Err(CEPError::TimeoutExceeded);
+            }
+
+            match self.get_transaction_by_id(tx_id, 0, 0).await {
+                Ok(GetTxResponse::Found { response, .. }) => {
+                    if response.status == "Confirmed" || response.status == "Executed" {
+                        return Ok(response);
+                    }
+                    // Otherwise, it's "Pending", so we continue polling.
+                }
+                Ok(GetTxResponse::NotFound { .. }) => {
+                    // "Transaction Not Found", continue polling as it might not have propagated yet.
+                }
+                Err(e) => {
+                    // A network or parsing error occurred during polling.
+                    return Err(e);
+                }
+            }
+
+            tokio::time::sleep(Duration::from_secs(self.interval_sec)).await;
+        }
     }
 }
