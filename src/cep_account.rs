@@ -2,7 +2,6 @@ use crate::c_certificate::CCertificate;
 use crate::error::{CEPError, Result};
 use crate::models::*;
 use secp256k1::{Message, Secp256k1};
-use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::time::Duration;
 
@@ -149,6 +148,8 @@ impl CEPAccount {
         self.nag_url = body.nag.ok_or_else(|| CEPError::ApiError {
             message: "NAG URL missing from successful response".to_string(),
         })?;
+        
+        self.network_node = network.to_string();
 
         Ok(())
     }
