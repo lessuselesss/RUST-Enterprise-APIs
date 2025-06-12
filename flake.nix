@@ -22,25 +22,28 @@
           extensions = [ "rust-src" "clippy" "rustfmt" ];
         };
 
+        # Define common C dependencies here
+        commonCDependencies = with pkgs; [
+          openssl
+          pkg-config
+          libclang
+        ];
+
       in
       {
         devShells.default = pkgs.mkShell {
           # Allow network access for cargo and integration tests
           __noChroot = true;
 
-          buildInputs = with pkgs; [
-            # 1. The Rust toolchain and language server
+          # nativeBuildInputs are for build-time tools
+          nativeBuildInputs = with pkgs; [
+            # Rust toolchain and development tools
             rustToolchain
             rust-analyzer
-
-            # 2. Essential Rust development utilities
             cargo-watch
 
-            # 3. Libraries required by common Rust crates (e.g., openssl-sys, ring)
-            openssl
-            pkg-config
-
-            # 4. A comprehensive set of C/C++ build tools for compiling native dependencies
+            # C/C++ build tools
+            clang
             gcc
             gnumake
             gpp
@@ -50,11 +53,12 @@
             autoconf
             automake
             makeWrapper
-            libclang # For crates that need to parse C headers (e.g., bindgen)
           ];
 
-          # This hook runs when you enter the shell. It sets up environment variables
-          # to help build scripts find the libraries provided by Nix.
+          # buildInputs are for runtime dependencies
+          buildInputs = commonCDependencies;
+
+          # This hook runs when you enter the shell
           shellHook = ''
             # Make libclang headers available to bindgen
             export LIBCLANG_PATH="${pkgs.libclang.lib}/lib"

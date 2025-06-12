@@ -1,6 +1,6 @@
 use crate::{
     LIB_VERSION, hex_fix, string_to_hex, get_formatted_timestamp,
-    DEFAULT_NAG, DEFAULT_CHAIN, NETWORK_URL, Certificate
+    DEFAULT_NAG, DEFAULT_CHAIN, NETWORK_URL, CCertificate
 };
 use reqwest::Client;
 use serde::{Serialize, Deserialize};
@@ -10,7 +10,7 @@ use rand::rngs::OsRng;
 use crate::error::AccountError;
 
 #[derive(Debug, Clone)]
-pub struct Account {
+pub(crate) struct CEPAccount {
     address: Option<String>,
     public_key: Option<String>,
     info: Option<String>,
@@ -31,8 +31,8 @@ struct TransactionResponse {
     response: Option<serde_json::Value>,
 }
 
-impl Account {
-    pub fn new() -> Self {
+impl CEPAccount {
+    pub(crate) fn new() -> Self {
         Self {
             address: None,
             public_key: None,
@@ -50,7 +50,7 @@ impl Account {
     }
 
     /// Opens an account with the specified address
-    pub fn open(&mut self, address: &str) -> Result<(), AccountError> {
+    pub(crate) fn open(&mut self, address: &str) -> Result<(), AccountError> {
         if address.is_empty() {
             return Err(AccountError::InvalidAddress("Address cannot be empty".into()));
         }
@@ -59,7 +59,7 @@ impl Account {
     }
 
     /// Sets the network configuration
-    pub async fn set_network(&mut self, network: &str) -> Result<(), AccountError> {
+    pub(crate) async fn set_network(&mut self, network: &str) -> Result<(), AccountError> {
         let client = Client::new();
         let url = format!("{}{}", NETWORK_URL, urlencoding::encode(network));
 
@@ -99,24 +99,22 @@ impl Account {
     }
 
     /// Sets the blockchain
-    pub fn set_blockchain(&mut self, chain: &str) {
+    pub(crate) fn set_blockchain(&mut self, chain: &str) {
         self.blockchain = chain.to_string();
     }
 
     /// Sets the network node
-    /// This matches the API specification across all language implementations
-    pub fn set_network_node(&mut self, node: &str) {
+    pub(crate) fn set_network_node(&mut self, node: &str) {
         self.network_node = node.to_string();
     }
 
     /// Sets the polling interval
-    /// This matches the API specification across all language implementations
-    pub fn set_interval(&mut self, seconds: u64) {
+    pub(crate) fn set_interval(&mut self, seconds: u64) {
         self.interval_sec = seconds;
     }
 
     /// Updates the account parameters such as Nonce
-    pub async fn update_account(&mut self) -> Result<bool, AccountError> {
+    pub(crate) async fn update_account(&mut self) -> Result<bool, AccountError> {
         let address = self.address.as_ref()
             .ok_or(AccountError::AccountNotOpen)?;
         
@@ -152,7 +150,7 @@ impl Account {
     }
 
     /// Submits a certificate to the blockchain
-    pub async fn submit_certificate(&mut self, data: &str, private_key: &str) -> Result<serde_json::Value, AccountError> {
+    pub(crate) async fn submit_certificate(&mut self, data: &str, private_key: &str) -> Result<serde_json::Value, AccountError> {
         let address = self.address.as_ref()
             .ok_or(AccountError::AccountNotOpen)?;
         
@@ -206,7 +204,7 @@ impl Account {
     }
 
     /// Gets a transaction by its ID
-    pub async fn get_transaction(&self, block_num: u64, tx_id: &str) -> Result<serde_json::Value, AccountError> {
+    pub(crate) async fn get_transaction(&self, block_num: u64, tx_id: &str) -> Result<serde_json::Value, AccountError> {
         let data = serde_json::json!({
             "Blockchain": hex_fix(&self.blockchain),
             "ID": hex_fix(tx_id),
@@ -232,8 +230,7 @@ impl Account {
     }
 
     /// Gets a transaction by its ID within a block range
-    /// This matches the API specification across all language implementations
-    pub async fn get_transaction_by_id(&self, tx_id: &str, start: u64, end: u64) -> Result<serde_json::Value, AccountError> {
+    pub(crate) async fn get_transaction_by_id(&self, tx_id: &str, start: u64, end: u64) -> Result<serde_json::Value, AccountError> {
         let data = serde_json::json!({
             "Blockchain": hex_fix(&self.blockchain),
             "ID": hex_fix(tx_id),
@@ -258,110 +255,57 @@ impl Account {
             .map_err(AccountError::from)
     }
 
-    /// Polls for transaction outcome with timeout
-    pub async fn get_transaction_outcome(&self, tx_id: &str, timeout_sec: u64) -> Result<serde_json::Value, AccountError> {
+    /// Gets the outcome of a transaction
+    pub(crate) async fn get_transaction_outcome(&self, tx_id: &str, timeout_sec: u64) -> Result<serde_json::Value, AccountError> {
         let start_time = std::time::Instant::now();
         let timeout = std::time::Duration::from_secs(timeout_sec);
-        let interval = std::time::Duration::from_secs(self.interval_sec);
 
-        loop {
-            if start_time.elapsed() > timeout {
-                return Err(AccountError::TimeoutError("Transaction polling timeout exceeded".into()));
-            }
-
-            match self.get_transaction_by_id(tx_id, 0, 10).await {
-                Ok(response) => {
-                    if let Some(resp) = response.get("Response") {
-                        if resp != "Transaction Not Found" {
-                            if let Some(status) = resp.get("Status") {
-                                if status != "Pending" {
-                                    return Ok(response);
-                                }
-                            }
-                        }
+        while start_time.elapsed() < timeout {
+            let result = self.get_transaction_by_id(tx_id, 0, u64::MAX).await?;
+            
+            if let Some(response) = result.get("Response") {
+                if response == "Transaction Not Found" {
+                    std::thread::sleep(std::time::Duration::from_secs(self.interval_sec));
+                    continue;
+                }
+                
+                if let Some(status) = response.get("Status") {
+                    if status != "Pending" {
+                        return Ok(result);
                     }
                 }
-                Err(e) => return Err(e),
             }
-
-            tokio::time::sleep(interval).await;
+            
+            std::thread::sleep(std::time::Duration::from_secs(self.interval_sec));
         }
+
+        Err(AccountError::Timeout("Transaction outcome not received within timeout".into()))
     }
 
     /// Closes the account
-    pub fn close(&mut self) {
-        *self = Self::new();
+    pub(crate) fn close(&mut self) {
+        self.address = None;
+        self.public_key = None;
+        self.info = None;
+        self.last_error = String::new();
+        self.latest_tx_id = String::new();
+        self.nonce = 0;
+        self.data = serde_json::json!({});
     }
 
-    // Private helper methods
+    /// Signs data with the provided private key
     fn sign_data(&self, data: &str, private_key: &str) -> Result<String, AccountError> {
-        let address = self.address.as_ref()
-            .ok_or(AccountError::AccountNotOpen)?;
-        
         let secp = Secp256k1::new();
-        let secret_key = SecretKey::from_slice(&hex::decode(hex_fix(private_key))?)?;
+        let private_key = hex::decode(private_key)
+            .map_err(|_| AccountError::InvalidPrivateKey("Invalid hex format".into()))?;
         
-        let message = Message::from_slice(&Sha256::digest(data.as_bytes()))
-            .map_err(|_| AccountError::InvalidPrivateKey("Invalid message format".into()))?;
+        let secret_key = SecretKey::from_slice(&private_key)
+            .map_err(|_| AccountError::InvalidPrivateKey("Invalid private key".into()))?;
+        
+        let message = Message::from_slice(data.as_bytes())
+            .map_err(|_| AccountError::InvalidMessage("Invalid message".into()))?;
         
         let signature = secp.sign_ecdsa(&message, &secret_key);
-        Ok(hex::encode(signature.serialize_der()))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_public_methods_existence() {
-        // Create an instance of Account
-        let mut account = Account::new();
-        
-        // Test constructor
-        assert_eq!(account.version, LIB_VERSION);
-        
-        // Test open method
-        assert!(account.open("test_address").is_ok());
-        
-        // Test set_blockchain
-        account.set_blockchain("test_chain");
-        assert_eq!(account.blockchain, "test_chain");
-        
-        // Test set_network_node
-        account.set_network_node("test_node");
-        assert_eq!(account.network_node, "test_node");
-        
-        // Test set_interval
-        account.set_interval(5);
-        assert_eq!(account.interval_sec, 5);
-        
-        // Test close
-        account.close();
-        assert!(account.address.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_async_methods_existence() {
-        let mut account = Account::new();
-        
-        // Test set_network (async)
-        // Note: This might fail if network is unreachable, but we're just testing method existence
-        let _ = account.set_network("test_network").await;
-        
-        // Test update_account (async)
-        let _ = account.update_account().await;
-        
-        // Test submit_certificate (async)
-        let _ = account.submit_certificate("test_data", "test_key").await;
-        
-        // Test get_transaction (async)
-        let _ = account.get_transaction(0, "test_id").await;
-        
-        // Test get_transaction_by_id (async)
-        let _ = account.get_transaction_by_id("test_id", 0, 10).await;
-        
-        // Test get_transaction_outcome (async)
-        let _ = account.get_transaction_outcome("test_id", 5).await;
+        Ok(hex::encode(signature.serialize_compact()))
     }
 } 

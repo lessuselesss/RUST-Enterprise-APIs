@@ -40,6 +40,7 @@
       // 4. Verify data integrity
       txOutcome = await account.getTransactionOutcome(result.TxID, 5)
       VERIFY txOutcome.data EQUALS testData
+      VERIFY txOutcome.status IS_NOT "Pending"
       VERIFY txOutcome.size EQUALS 1024
       ```
     - [1.3.3] should handle transaction submission with 2KB data
@@ -61,6 +62,7 @@
       // 4. Verify data integrity
       txOutcome = await account.getTransactionOutcome(result.TxID, 5)
       VERIFY txOutcome.data EQUALS testData
+      VERIFY txOutcome.status IS_NOT "Pending"
       VERIFY txOutcome.size EQUALS 2048
       ```
     - [1.3.4] should handle transaction submission with 5KB data
@@ -82,6 +84,7 @@
       // 4. Verify data integrity
       txOutcome = await account.getTransactionOutcome(result.TxID, 5)
       VERIFY txOutcome.data EQUALS testData
+      VERIFY txOutcome.status IS_NOT "Pending"
       VERIFY txOutcome.size EQUALS 5120
       ```
     - [1.3.5] should handle concurrent transaction submissions
@@ -139,6 +142,7 @@
       FOR i = 0 TO results.length - 1
           txOutcome = await account.getTransactionOutcome(results[i].TxID, 5)
           VERIFY txOutcome.data EQUALS testData[i]
+          VERIFY txOutcome.status IS_NOT "Pending"
           VERIFY txOutcome.nonce EQUALS initialNonce + i + 1
       ```
     - [1.3.8] should handle transaction submission with invalid data

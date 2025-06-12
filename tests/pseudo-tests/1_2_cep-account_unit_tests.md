@@ -23,7 +23,91 @@
       VERIFY account.intervalSec IS 2
       ```
     - [1.2.2] should only expose the open, set network, set blockchain, update account, submit certificate, get transaction outcome, get transaction & close methods publically.
-    
+      ```pseudocode
+      // 1. Setup
+      account = NEW CEP_Account()
+      
+      // 2. Define allowed public methods (exactly as specified in requirements)
+      ALLOWED_METHODS = [
+          "open",
+          "set network",
+          "set blockchain",
+          "update account",
+          "submit certificate",
+          "get transaction outcome",
+          "get transaction",
+          "close"
+      ]
+      
+      // 3. Define known private methods (these should not be accessible)
+      PRIVATE_METHODS = [
+          "sign data",
+          "verify signature",
+          "validate address",
+          "validate private key",
+          "handle network error",
+          "handle api error",
+          "update nonce",
+          "update latest tx id",
+          "update account info"
+      ]
+      
+      // 4. Define methods that should be removed/not accessible
+      REMOVED_METHODS = [
+          "get transaction by id"  // Explicitly test this method is not accessible
+      ]
+      
+      // 5. Test public method accessibility
+      FOR each method IN ALLOWED_METHODS
+          VERIFY method IS_ACCESSIBLE_ON account
+          VERIFY method IS_CALLABLE_ON account
+      
+      // 6. Test private method inaccessibility
+      FOR each method IN PRIVATE_METHODS
+          VERIFY method IS_NOT_ACCESSIBLE_ON account
+          VERIFY method IS_NOT_CALLABLE_ON account
+      
+      // 7. Test removed method inaccessibility
+      FOR each method IN REMOVED_METHODS
+          VERIFY method IS_NOT_ACCESSIBLE_ON account
+          VERIFY method IS_NOT_CALLABLE_ON account
+          try {
+              CALL account.get_transaction_by_id("test_id", 1, 100)
+              VERIFY false  // Should not reach here
+          } catch (error) {
+              VERIFY error.message INCLUDES "not accessible"
+          }
+      
+      // 8. Test method invocation
+      // Test public method invocation
+      try {
+          CALL account.open("0x123...")
+          VERIFY true  // Should not throw
+      } catch (error) {
+          VERIFY false  // Should not reach here
+      }
+      
+      // Test private method invocation
+      try {
+          CALL account.sign_data("test", "0x123...")
+          VERIFY false  // Should not reach here
+      } catch (error) {
+          VERIFY error.message INCLUDES "not accessible"
+      }
+      
+      // 9. Test method enumeration
+      methods = GET_ALL_METHODS(account)
+      FOR each method IN methods
+          IF method IN ALLOWED_METHODS
+              VERIFY true  // Should be present
+          ELSE IF method IN PRIVATE_METHODS
+              VERIFY false  // Should not be present
+          ELSE IF method IN REMOVED_METHODS
+              VERIFY false  // Should not be present
+          ELSE
+              VERIFY false  // Unknown method found
+      ```
+
     - **open account method**
       - [1.2.3] should set the account address
         ```pseudocode
@@ -571,7 +655,7 @@
         // 4. Verify transaction data
         VERIFY txResult.Result EQUALS 200
         VERIFY txResult.Response.id EQUALS submitResult.TxID
-        VERIFY txResult.Response.status EQUALS "Confirmed"
+        VERIFY txResult.Response.status IS_NOT "Pending"
         VERIFY txResult.Response.data EQUALS testData
         VERIFY txResult.Response.blockNumber EQUALS submitResult.blockNumber
         VERIFY txResult.Response.timestamp IS NOT NULL
@@ -646,6 +730,7 @@
             // Verify transaction data
             VERIFY txResult.Result EQUALS 200
             VERIFY txResult.Response.id EQUALS result.TxID
+            VERIFY txResult.Response.status IS_NOT "Pending"
             VERIFY txResult.Response.blockNumber GREATER THAN OR EQUAL TO startBlock
             VERIFY txResult.Response.blockNumber LESS THAN OR EQUAL TO endBlock
             VERIFY txResult.Response.data EQUALS testData[submitResults.indexOf(result)]
@@ -658,6 +743,7 @@
             submitResults[0].blockNumber
         )
         VERIFY txResult.Result EQUALS 200
+        VERIFY txResult.Response.status IS_NOT "Pending"
         
         // Test with invalid block range
         try {

@@ -1,10 +1,10 @@
-pub mod certificate;
-pub mod account;
+pub mod c_certificate;
+pub mod cep_account;
 mod utils;
 mod error;
 
-pub use certificate::Certificate;
-pub use account::Account;
+pub use c_certificate::CCertificate;
+pub use cep_account::CEPAccount;
 
 // Library version constant
 pub const LIB_VERSION: &str = "1.0.13";

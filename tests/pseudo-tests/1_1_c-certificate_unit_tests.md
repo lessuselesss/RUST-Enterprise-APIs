@@ -1,4 +1,4 @@
-# Core Component Tests
+# Certificate Management Tests
 
 ## C_CERTIFICATE Class Tests
 
