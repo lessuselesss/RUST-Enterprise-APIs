@@ -1,8 +1,8 @@
 [package]
-name = "cep-sdk"
-version = "0.1.0"
+name = "circular-enterprise-apis"
+version = "1.0.13"
 edition = "2021"
-description = "A Rust SDK for the Circular ESM Enterprise APIs"
+description = "CIRCULAR Enterprise APIs for Data Certification"
 license = "MIT"
 
 [dependencies]
@@ -20,10 +20,18 @@ thiserror = "1.0"
 # Cryptography
 hex = "0.4"
 sha2 = "0.10"
-secp256k1 = { version = "0.27", features = ["global-context", "recovery"] }
+secp256k1 = "0.27"
+rand = "0.8"
+
+# Time handling
+chrono = "0.4"
+
+# URL encoding
+urlencoding = "2.1"
 
 [dev-dependencies]
 rstest = "0.18"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 assert_matches = "1.1"
 mockito = "1.2"
+tokio-test = "0.4"

@@ -2,4 +2,7 @@
 .direnv/
 .env
 target/
-tests/
+.cursor/
+*.js
+*.xml
+archive/

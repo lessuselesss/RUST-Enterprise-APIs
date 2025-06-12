@@ -1,62 +1,80 @@
 {
-  description = "A development environment for a Rust Enterprise API";
+  description = "A comprehensive Rust development environment for the Circular Protocol Enterprise API";
 
   inputs = {
-    nixpkgs.url = "github.com/NixOS/nixpkgs/nixos-unstable";
-    rust-overlay.url = "github.com/oxalica/rust-overlay";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    rust-overlay.url = "github:oxalica/rust-overlay";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, rust-overlay, flake-utils }:
+  outputs = { self, nixpkgs, rust-overlay, flake-utils, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        overlays = [ (import rust-overlay) ];
+        # Use the rust-overlay to get a consistent and feature-rich toolchain
+        overlays = [ (import rust-overlay).overlays.default ];
+
         pkgs = import nixpkgs {
           inherit system overlays;
         };
 
-        rustToolchain = pkgs.rust-bin.stable.latest.default;
+        # Define the Rust toolchain with essential extensions for development
+        rustToolchain = pkgs.rust-bin.stable.latest.default.override {
+          extensions = [ "rust-src" "clippy" "rustfmt" ];
+        };
 
       in
       {
         devShells.default = pkgs.mkShell {
-          buildInputs = [
-            # The Rust toolchain
+          # Allow network access for cargo and integration tests
+          __noChroot = true;
+
+          buildInputs = with pkgs; [
+            # 1. The Rust toolchain and language server
             rustToolchain
-            
-            # Tools needed by many build scripts
-            pkgs.pkg-config
-            pkgs.openssl
-            
-            # The C/C++ compilers and linker
-            pkgs.gcc
-            pkgs.gnumake
-            pkgs.gpp
-            pkgs.bison
-            pkgs.flex
-            pkgs.fontforge
-            pkgs.makeWrapper
-            pkgs.libiconv
-            pkgs.autoconf
-            pkgs.automake
-            # freetype calls glibtoolize
-            
-            # Optional but useful tool
-            pkgs.cargo-watch 
+            rust-analyzer
+
+            # 2. Essential Rust development utilities
+            cargo-watch
+
+            # 3. Libraries required by common Rust crates (e.g., openssl-sys, ring)
+            openssl
+            pkg-config
+
+            # 4. A comprehensive set of C/C++ build tools for compiling native dependencies
+            gcc
+            gnumake
+            gpp
+            bison
+            flex
+            libiconv
+            autoconf
+            automake
+            makeWrapper
+            libclang # For crates that need to parse C headers (e.g., bindgen)
           ];
 
-          # Environment variables for specific libraries if needed (e.g., openssl)
-          # OPENSSL_DIR = pkgs.openssl;
-          # PKG_CONFIG_PATH = "''${pkgs.openssl}/lib/pkgconfig";
-
-          # A simple prompt to indicate you are in the devShell
+          # This hook runs when you enter the shell. It sets up environment variables
+          # to help build scripts find the libraries provided by Nix.
           shellHook = ''
-            echo "Entering Rust development environment (Nix Flakes)"
-          ''
-          ;
+            # Make libclang headers available to bindgen
+            export LIBCLANG_PATH="${pkgs.libclang.lib}/lib"
 
-          # Disable the network sandbox to allow cargo and tests to connect
-          __noChroot = true;
+            # Make openssl libraries and headers available
+            export OPENSSL_DIR="${pkgs.openssl.dev}"
+            export OPENSSL_LIB_DIR="${pkgs.openssl.out}/lib"
+            export OPENSSL_INCLUDE_DIR="${pkgs.openssl.dev}/include"
+
+            # Add relevant paths to PKG_CONFIG_PATH
+            export PKG_CONFIG_PATH="${pkgs.openssl.dev}/lib/pkgconfig:${pkgs.libclang.lib}/pkgconfig"
+
+            echo ""
+            echo "Rust Enterprise API dev environment activated."
+            echo "------------------------------------------------"
+            echo "Toolchain: $(rustc --version)"
+            echo "Tools: cargo-watch, clippy, rustfmt, rust-analyzer"
+            echo "Network access for cargo is enabled."
+            echo ""
+          '';
         };
       }
     );
